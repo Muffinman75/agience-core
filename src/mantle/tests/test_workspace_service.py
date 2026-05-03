@@ -31,6 +31,7 @@ from entities.artifact import Artifact as ArtifactEntity
 from entities.collection import Collection as CollectionEntity, WORKSPACE_CONTENT_TYPE
 from entities.grant import Grant as GrantEntity
 from services import workspace_service as ws_svc
+from api.dkg_integration import CommitReceipt
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +136,24 @@ def _artifact(
 # ---------------------------------------------------------------------------
 # Commit token HMAC
 # ---------------------------------------------------------------------------
+
+def test_commit_actor_to_receipt_actor_user():
+    actor = ws_svc._commit_actor_to_receipt_actor(ws_svc.CommitActor(actor_type="user", actor_id="user-1", subject_user_id="user-1"))
+    assert actor.principal_id == "user-1"
+    assert actor.principal_type == "user"
+
+
+def test_commit_actor_to_receipt_actor_api_key_becomes_service():
+    actor = ws_svc._commit_actor_to_receipt_actor(ws_svc.CommitActor(actor_type="api_key", actor_id="key-1", subject_user_id="user-1"))
+    assert actor.principal_id == "user-1"
+    assert actor.principal_type == "service"
+
+
+def test_build_commit_receipt_authority_uses_workspace_scope():
+    authority = ws_svc._build_commit_receipt_authority("ws-1", ws_svc.CommitActor(actor_type="user", actor_id="user-1"))
+    assert authority.authorization_mode == "human-review"
+    assert authority.scope_refs == ["workspace:ws-1", "collection:ws-1"]
+
 
 class TestCommitToken:
     def test_round_trip_valid(self):

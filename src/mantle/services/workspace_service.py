@@ -33,6 +33,7 @@ from api.workspaces.commit import (
     WorkspaceCommitPlanSummary,
     WorkspaceCommitResponse,
 )
+from api.dkg_integration import ReceiptActor, ReceiptAuthority
 from entities.artifact import Artifact as ArtifactEntity
 from entities.collection import (
     Collection as CollectionEntity,
@@ -120,6 +121,24 @@ def _resolve_commit_actor(user_id: str, api_key: Optional[APIKeyEntity]) -> Comm
             api_key_id=str(getattr(api_key, "id", "")),
         )
     return CommitActor(actor_type="user", actor_id=user_id, subject_user_id=user_id)
+
+
+def _commit_actor_to_receipt_actor(actor: CommitActor) -> ReceiptActor:
+    principal_type = "service" if actor.actor_type == "api_key" else "user"
+    principal_id = actor.subject_user_id or actor.actor_id
+    return ReceiptActor(
+        principal_id=principal_id,
+        principal_type=principal_type,
+        client_id=actor.client_id,
+    )
+
+
+def _build_commit_receipt_authority(workspace_id: str, actor: CommitActor) -> ReceiptAuthority:
+    authorization_mode = "api-key" if actor.actor_type == "api_key" else "human-review"
+    return ReceiptAuthority(
+        authorization_mode=authorization_mode,
+        scope_refs=[f"workspace:{workspace_id}", f"collection:{workspace_id}"],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1227,6 +1246,8 @@ def commit_workspace_to_collections(
             ] if drafts else [],
         )
 
+    commit_receipt = None
+
     # Apply: single AQL UPDATE for the whole batch.
     now = _now_iso()
     committed_count = arango.batch_commit_drafts(
@@ -1262,6 +1283,20 @@ def commit_workspace_to_collections(
         )
     except Exception:
         logger.debug("provenance record failed", exc_info=True)
+
+    try:
+        from services.dkg_integration_service import build_commit_receipt, validate_receipt_chain
+        commit_receipt = build_commit_receipt(
+            workspace_id=workspace_id,
+            collection_id=workspace_id,
+            artifact_ids=[d.id for d in drafts],
+            actor=_commit_actor_to_receipt_actor(_resolve_commit_actor(user_id, api_key)),
+            authority=_build_commit_receipt_authority(workspace_id, _resolve_commit_actor(user_id, api_key)),
+            commit_preview_ref=commit_token,
+        )
+        validate_receipt_chain(commit_receipt)
+    except Exception:
+        logger.debug("commit receipt generation failed", exc_info=True)
 
     # Re-index each committed artifact.
     try:
