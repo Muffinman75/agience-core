@@ -41,6 +41,7 @@ COLLECTION_COMMITS = "commits"
 COLLECTION_COMMIT_ITEMS = "commit_items"
 COLLECTION_EDGES = "edges"  # Edge collection: parent → child artifacts
 COLLECTION_SERVER_KEYS = "server_keys"
+COLLECTION_DKG_PUBLICATIONS = "dkg_publications"  # DKG projection/publication receipts
 
 GRAPH_NAME = "agience_graph"
 
@@ -1631,3 +1632,76 @@ def get_server_jwk(db: StandardDatabase, server_client_id: str) -> Optional[dict
         return None
     except Exception:
         return None
+
+
+# ============================================================
+#  DKG publication receipts
+# ------------------------------------------------------------
+#  Records the real outcome of projecting a committed Agience
+#  artifact onto a DKG v10 node (Working / Shared Memory), written
+#  back by the `agience-dkg` integration after a successful
+#  wm-write / promote. Keyed per artifact root so the DKG Projection
+#  panel can show every stage (WM written -> SWM promoted) with the
+#  real UAL returned by the node.
+# ============================================================
+
+def ensure_dkg_publications(db: StandardDatabase) -> None:
+    """Lazily create the ``dkg_publications`` collection and its index.
+
+    Idempotent and cheap to call before every read/write. This makes the
+    DKG Projection feature work on databases that were provisioned before
+    this collection existed (e.g. a reviewer who does not re-run schema
+    initialization) — no migration step required.
+    """
+    try:
+        if not db.has_collection(COLLECTION_DKG_PUBLICATIONS):
+            db.create_collection(COLLECTION_DKG_PUBLICATIONS)
+            coll = db.collection(COLLECTION_DKG_PUBLICATIONS)
+            try:
+                coll.add_hash_index(fields=["artifact_root_id"], unique=False)
+            except Exception:
+                logger.debug("dkg_publications index may already exist", exc_info=True)
+    except Exception as e:
+        logger.warning("ensure_dkg_publications failed: %s", e)
+
+
+def record_dkg_publication(db: StandardDatabase, doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Upsert a DKG publication receipt, keyed by its ``publication_id``.
+
+    Returns the stored record with ArangoDB internal keys stripped.
+    """
+    ensure_dkg_publications(db)
+    key = doc.get("publication_id") or doc.get("_key")
+    record = {**doc, "_key": key}
+    try:
+        coll = db.collection(COLLECTION_DKG_PUBLICATIONS)
+        coll.insert(record, overwrite=True)
+    except Exception as e:
+        logger.error("Failed to record DKG publication %s: %s", key, e)
+        raise
+    record.pop("_id", None)
+    record.pop("_rev", None)
+    record.pop("_key", None)
+    return record
+
+
+def get_dkg_publications_for_root(db: StandardDatabase, root_id: str) -> List[Dict[str, Any]]:
+    """Return all DKG publication receipts for an artifact root, oldest first."""
+    ensure_dkg_publications(db)
+    try:
+        cursor = db.aql.execute(
+            "FOR p IN @@col FILTER p.artifact_root_id == @root "
+            "SORT p.recorded_at ASC RETURN p",
+            bind_vars={"@col": COLLECTION_DKG_PUBLICATIONS, "root": root_id},
+        )
+        out: List[Dict[str, Any]] = []
+        for raw in cursor:
+            raw.pop("_id", None)
+            raw.pop("_rev", None)
+            raw.setdefault("publication_id", raw.get("_key"))
+            raw.pop("_key", None)
+            out.append(raw)
+        return out
+    except Exception as e:
+        logger.error("Failed to read DKG publications for %s: %s", root_id, e)
+        return []

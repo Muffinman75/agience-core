@@ -1,6 +1,6 @@
 // "Artifact Floating" – full-size movable window for a single artifact on the desktop.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, FolderOpen, Info, Pencil, Tag, Calendar, Folder, Layers } from 'lucide-react';
+import { X, FolderOpen, Info, Pencil, Tag, Calendar, Folder, Layers, Share2 } from 'lucide-react';
 import { IconButton } from '@/components/ui/icon-button';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
@@ -16,6 +16,7 @@ import CollectionArtifactViewer from '@/components/collections/CollectionArtifac
 import McpAppHost from '@/isolation/McpAppHost';
 import type { McpAppHostHandle, PickerRequestParams } from '@/isolation/McpAppHost';
 import { CollectionChip } from '@/components/common/CollectionChip';
+import DkgProjectionPanel from '@/components/workspace/DkgProjectionPanel';
 import { CollectionPicker } from '@/components/modals/CollectionPicker';
 import { BindingPicker } from '@/components/modals/BindingPicker';
 import { useDebouncedSave } from '@/hooks/useDebouncedSave';
@@ -27,7 +28,7 @@ import { COLLECTION_CONTENT_TYPE, WORKSPACE_CONTENT_TYPE } from '@/utils/content
 import { buildCollectionLabelMap, resolveCollectionLabel } from '@/utils/collectionLabels';
 
 /** Which panel is active in the floating window body */
-type ActivePanel = 'content' | 'context' | 'collections' | 'children';
+type ActivePanel = 'content' | 'context' | 'collections' | 'children' | 'dkg';
 
 type Rect = { x: number; y: number; w: number; h: number };
 
@@ -997,6 +998,24 @@ export default function FloatingCardWindow(props: {
 						<Info />
 					</IconButton>
 
+					{/* DKG projection — only for persisted artifacts */}
+					{artifact?.id && (
+						<IconButton
+							size="sm"
+							variant="ghost"
+							active={activePanel === 'dkg'}
+							onPointerDown={(e) => e.stopPropagation()}
+							onClick={(e) => {
+								e.preventDefault();
+								e.stopPropagation();
+								togglePanel('dkg');
+							}}
+							title="DKG projection"
+						>
+							<Share2 />
+						</IconButton>
+					)}
+
 					{/* Edit — only if content type supports it */}
 					{supportsEdit && (
 						<IconButton
@@ -1040,6 +1059,10 @@ export default function FloatingCardWindow(props: {
 					<CollectionsPanel artifact={artifact} />
 				) : activePanel === 'children' && artifact ? (
 					<ChildrenPanel artifactId={String(artifact.id)} onOpenArtifact={onOpenArtifact} />
+				) : activePanel === 'dkg' && artifact ? (
+					<div className="h-full overflow-y-auto p-4">
+						<DkgProjectionPanel artifactId={artifact.id ? String(artifact.id) : undefined} />
+					</div>
 				) : (
 					renderContentViewer()
 				)}

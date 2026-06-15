@@ -156,9 +156,15 @@ MinIO, `stream` / SRS) wired together by `docker compose`.
   └─────────────────────────────────────┘
                     │
   ┌─────────────────────────────────────┐
-  │  Chorus (FastMCP unified host)      │  Aria · Astra · Sage
-  │  Universal MCP gateway, persona     │  Iris · Ophan · Seraph · Verso
-  │  servers, ui:// viewers             │  + relay WebSocket for desktop hosts
+  │  Handlers (MCP Servers)             │  Type-specific viewers, tools, prompts
+  │  Aria · Astra · Atlas · Sage        │  Served as ui:// MCP resources
+  │  Nexus · Ophan · Seraph · Verso     │  Each a standalone FastMCP process
+  └─────────────────────────────────────┘
+                    │ MCP
+  ┌─────────────────────────────────────┐
+  │  Core (FastAPI)                     │  Type-agnostic platform services
+  │  Auth · Artifacts · Workspaces      │  ArangoDB · OpenSearch
+  │  Collections · Search · MCP infra   │  S3 · JWT · Scoped API keys
   └─────────────────────────────────────┘
                     │ HTTP JSON-RPC + REST
   ┌─────────────────────────────────────┐    ┌─────────────────────────────┐

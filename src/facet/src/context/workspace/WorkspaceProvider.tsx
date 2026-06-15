@@ -47,6 +47,35 @@ function compareByOrderKeyStable(a: Artifact, b: Artifact) {
   return String(a.id || '').localeCompare(String(b.id || ''));
 }
 
+/**
+ * Insert a server-confirmed artifact into local state without ever
+ * duplicating it. The `artifact.created` SSE event is broadcast to every
+ * subscriber on the workspace — including the originator — so it can arrive
+ * *before* the create POST resolves. When that happens the SSE handler has
+ * already appended the artifact; without this guard the POST resolver would
+ * append a second copy. If the id is already present we merge in place
+ * (preserving position); otherwise we insert at `insertIndex` or append.
+ */
+function insertArtifactDedup(
+  prev: Artifact[],
+  created: Artifact,
+  insertIndex?: number
+): Artifact[] {
+  const id = String(created.id);
+  const existingIndex = prev.findIndex(c => String(c.id) === id);
+  if (existingIndex !== -1) {
+    const next = [...prev];
+    next[existingIndex] = { ...next[existingIndex], ...created };
+    return next;
+  }
+  if (typeof insertIndex === 'number') {
+    const next = [...prev];
+    next.splice(insertIndex, 0, created);
+    return next;
+  }
+  return [...prev, created];
+}
+
 function expandToFullWorkspaceOrder(allArtifacts: Artifact[], orderedIdsIn: string[]): string[] {
   const full = [...allArtifacts]
     .sort(compareByOrderKeyStable)
@@ -179,7 +208,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       };
       try {
         const created = await addArtifactToWorkspace(activeWorkspace.id, payload);
-        setArtifacts(prev => [...prev, created as Artifact]);
+        setArtifacts(prev => insertArtifactDedup(prev, created as Artifact));
       } catch (err) {
         console.error('Failed to create artifact', err);
       }
@@ -189,7 +218,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   // Add a pre-created artifact to local state (e.g., from upload initiation)
   const addExistingArtifact = useCallback((artifact: Artifact) => {
-    setArtifacts(prev => [...prev, artifact]);
+    setArtifacts(prev => insertArtifactDedup(prev, artifact));
   }, []);
 
   // New: create artifact, return it, and insert at a specific index
@@ -226,15 +255,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       try {
         const created = await addArtifactToWorkspace(activeWorkspace.id, payload) as Artifact;
 
-        // Optimistic insert at correct position
-        setArtifacts(prev => {
-          if (typeof insertIndex === 'number') {
-            const next = [...prev];
-            next.splice(insertIndex, 0, created);
-            return next;
-          }
-          return [...prev, created];
-        });
+        // Optimistic insert at correct position (dedup-safe against SSE echo)
+        setArtifacts(prev => insertArtifactDedup(prev, created, insertIndex));
 
         return created;
       } catch (err) {

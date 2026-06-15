@@ -10,6 +10,7 @@ import { addArtifactToCollection, removeArtifactFromCollection } from '../../api
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import DkgProjectionPanel from '../workspace/DkgProjectionPanel';
 
 type JSONValue = string | number | boolean | null | JSONArray | JSONObject;
 type JSONArray = JSONValue[];
@@ -148,6 +149,7 @@ export default function ArtifactEditModal({ artifact, onSave, onClose }: Artifac
             <TabsTrigger value="content">Content</TabsTrigger>
             <TabsTrigger value="context">Context</TabsTrigger>
             <TabsTrigger value="collections">Collections</TabsTrigger>
+            <TabsTrigger value="dkg">DKG</TabsTrigger>
           </TabsList>
 
           {/* Content Tab */}
@@ -204,6 +206,11 @@ export default function ArtifactEditModal({ artifact, onSave, onClose }: Artifac
                 )}
               </div>
             )}
+          </TabsContent>
+
+          {/* DKG Projection Tab */}
+          <TabsContent value="dkg" className="flex-1 overflow-y-auto p-4 mt-0">
+            <DkgProjectionPanel artifactId={artifact.id ? String(artifact.id) : undefined} />
           </TabsContent>
         </Tabs>
 

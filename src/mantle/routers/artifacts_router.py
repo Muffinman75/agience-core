@@ -583,6 +583,97 @@ async def list_children(
     return children
 
 
+# ---------- DKG Projection (governance panel) ----------
+
+class DkgPublicationRequest(BaseModel):
+    """Write-back of a real DKG publication outcome from ``agience-dkg``.
+
+    Posted by the integration after a successful ``wm-write`` / ``promote`` so
+    the DKG Projection panel can show the real UAL and stage state.
+    """
+    dkg_stage: Literal["wm", "swm", "vm"]
+    context_graph_id: str
+    publish_state: Literal["written", "promoted", "published", "finalized", "failed"]
+    ual: Optional[str] = None
+    assertion_id: Optional[str] = None
+    turn_uri: Optional[str] = None
+    projection_mode: Optional[str] = "rdf"
+    content_digest: Optional[str] = None
+    transport: Optional[str] = None
+    remote_timestamp: Optional[str] = None
+
+
+@router.get("/{artifact_id}/dkg/projection")
+async def get_dkg_projection(
+    artifact_id: str,
+    auth: AuthContext = Depends(get_auth),
+    arango_db: StandardDatabase = Depends(get_arango_db),
+):
+    """Governed DKG projection view for an artifact.
+
+    Hybrid: always returns the typed ``agience:`` projection *plan* (no DKG
+    node required); merges any real publication receipts written back by
+    ``agience-dkg`` so the panel shows the live UAL once the artifact has been
+    projected to a node.
+    """
+    check_access(auth, artifact_id, "read", arango_db)
+
+    doc = _find_artifact(arango_db, artifact_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Not found")
+    doc.pop("_id", None)
+    doc.pop("_rev", None)
+    if "_key" in doc:
+        doc.setdefault("id", doc.pop("_key"))
+
+    root_id = doc.get("root_id") or artifact_id
+    from services.dkg_integration_service import build_dkg_projection_view
+
+    publications = arango.get_dkg_publications_for_root(arango_db, root_id)
+    return build_dkg_projection_view(
+        artifact=doc,
+        publications=publications,
+        actor_principal_id=auth.principal_id,
+        actor_type=auth.principal_type,
+    )
+
+
+@router.post("/{artifact_id}/dkg/publication", status_code=status.HTTP_201_CREATED)
+async def record_dkg_publication(
+    artifact_id: str,
+    body: DkgPublicationRequest,
+    auth: AuthContext = Depends(get_auth),
+    arango_db: StandardDatabase = Depends(get_arango_db),
+):
+    """Record a real DKG publication outcome (write-back from ``agience-dkg``)."""
+    check_access(auth, artifact_id, "update", arango_db)
+
+    doc = _find_artifact(arango_db, artifact_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    root_id = doc.get("root_id") or doc.get("_key") or artifact_id
+    publication_id = f"pub_{uuid.uuid4().hex[:12]}"
+    record = {
+        "publication_id": publication_id,
+        "artifact_id": artifact_id,
+        "artifact_root_id": root_id,
+        "dkg_stage": body.dkg_stage,
+        "context_graph_id": body.context_graph_id,
+        "publish_state": body.publish_state,
+        "ual": body.ual,
+        "assertion_id": body.assertion_id,
+        "turn_uri": body.turn_uri,
+        "projection_mode": body.projection_mode,
+        "content_digest": body.content_digest,
+        "transport": body.transport,
+        "remote_timestamp": body.remote_timestamp,
+        "recorded_at": _now_iso(),
+        "recorded_by": auth.principal_id,
+    }
+    return arango.record_dkg_publication(arango_db, record)
+
+
 # ---------- PATCH /artifacts/{artifact_id} — Update ----------
 
 @router.patch("/{artifact_id}")

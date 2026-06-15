@@ -54,6 +54,7 @@ def init_arangodb(host: str, port: int, username: str, password: str, db_name: s
         # KEK (encryption.key). Persisting them here is what lets encrypted cells
         # survive a mantle restart. Keyed by principal_id; values are wrapped.
         "mantle_master_keys",
+        "dkg_publications",
     ]
 
     edge_collections = [
@@ -318,6 +319,14 @@ def _create_indexes(db: StandardDatabase) -> int:
         otp_codes.add_ttl_index(fields=["expires_at"], expiry_time=0)
         created_indexes += 1
         logger.info("Created index: otp_codes.expires_at (TTL)")
+
+    # --- dkg_publications indexes --------------------------------------
+    dkg_publications = db.collection("dkg_publications")
+
+    if not _index_exists(dkg_publications, ["artifact_root_id"]):
+        dkg_publications.add_hash_index(fields=["artifact_root_id"], unique=False)
+        created_indexes += 1
+        logger.info("Created index: dkg_publications.artifact_root_id")
 
     # --- edges (parent → child) indexes --------------------------------
     edges = db.collection("edges")
